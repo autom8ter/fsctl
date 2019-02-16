@@ -2,16 +2,14 @@ package fsctl
 
 import (
 	"bufio"
-	"bytes"
-	"context"
 	"fmt"
 	"github.com/Masterminds/sprig"
+	"github.com/autom8ter/fsctl/clone"
 	"github.com/spf13/afero"
 	"github.com/spf13/viper"
 	"io"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/template"
@@ -26,7 +24,7 @@ type Fs struct {
 	*viper.Viper
 }
 
-func NewFs(cfgurl string) *Fs {
+func NewFs(c clone.CloneFunc) (*Fs, error) {
 	fs := &afero.Afero{
 		Fs: afero.NewOsFs(),
 	}
@@ -36,22 +34,20 @@ func NewFs(cfgurl string) *Fs {
 	}
 	v.AutomaticEnv()
 	v.SetFs(fs)
+	if err := v.BindEnv("CFGTOKEN"); err != nil {
+		panic(err)
+	}
+
 	f := &Fs{
 		Afero: fs,
 		Viper: v,
 	}
-	c := exec.CommandContext(context.Background(), "curl", " -H", "Authorization: token "+os.Getenv("CFGTOKEN"),  "-H 'Accept: application/vnd.github.v3.raw'",  "-O -L",  cfgurl)
-	bits, err := c.CombinedOutput()
-	if err != nil {
-		panic(err)
-	}
-
-	if err := f.ReadConfig(bytes.NewBuffer(bits)); err != nil {
-		panic(err)
+	if err := f.CloneConfig(c); err != nil {
+		return f, err
 	}
 
 	f.Sync()
-	return f
+	return f, nil
 }
 
 func (fs *Fs) WalkTemplates(dir string, outDir string) {

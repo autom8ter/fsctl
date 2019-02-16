@@ -4,38 +4,13 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/Masterminds/sprig"
-	"io/ioutil"
+	"github.com/autom8ter/fsctl/clone"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"text/template"
 )
-
-func (c *Fs) ReadAllJsonAndYaml() error {
-	if err := filepath.Walk(os.Getenv("PWD"), func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			fmt.Printf("prevent panic by handling failure accessing a path %q: %v\n", path, err)
-			return err
-		}
-		if info.IsDir() && info.Name() == "vendor" {
-			return filepath.SkipDir
-		}
-		if filepath.Ext(path) == ".yaml" || filepath.Ext(path) == "json" {
-			b, err := ioutil.ReadFile(path)
-			if err != nil {
-				panic(err)
-			}
-
-			if err := c.ReadConfig(bytes.NewBuffer(b)); err != nil {
-				panic(err)
-			}
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	return nil
-}
 
 func (c *Fs) Render(s string) string {
 	if strings.Contains(s, "{{") {
@@ -65,4 +40,38 @@ func (c *Fs) Sync() {
 			}
 		}
 	}
+}
+
+
+func (f *Fs) CloneConfig(c clone.CloneFunc) error {
+	dir, err := f.TempDir("", "config")
+	if err != nil {
+		panic(err)
+	}
+	defer f.RemoveAll(dir)
+	_ = c.Clone(dir)
+	if err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			fmt.Printf("prevent panic by handling failure accessing a path %q: %v\n", path, err)
+			return err
+		}
+		if info.IsDir() && info.Name() == ".git" {
+			fmt.Printf("skipping a dir without errors: %+v \n", info.Name())
+			return filepath.SkipDir
+		}
+		if !info.IsDir() && filepath.Ext(path) == "yaml" || filepath.Ext(path) == "json"{
+			file, err := f.Open(path)
+			if err != nil {
+				return err
+			}
+			if err := f.ReadConfig(file); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	log.Println("successfully read stored remote config")
+	return nil
 }
